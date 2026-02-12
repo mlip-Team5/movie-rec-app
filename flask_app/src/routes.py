@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify
 
 from models import RecommenderModel
 
@@ -6,18 +6,12 @@ main = Blueprint("main", __name__)
 model = RecommenderModel()
 
 
-@main.route("/recommend", methods=["POST"])
-def recommend():
+@main.route("/recommend/<userid>", methods=["GET"])
+def recommend(userid):
   try:
-    # force=True tells Flask to skip content-type check for the time being before model integration.
-    data = request.get_json(silent=True)
-
-    # In the future, extract features from data
-    user_input = data.get("input") if data else None
-
-    predictions = model.predict(user_input)
-
-    return jsonify({"status": "success", "recommended_movie_ids": predictions})
+    predictions = model.predict(userid)
+    movie_ids = ",".join(map(str, predictions))
+    return movie_ids
   except Exception as e:
     return jsonify({"status": "error", "message": str(e)}), 500
 

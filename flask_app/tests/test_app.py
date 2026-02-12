@@ -21,30 +21,18 @@ def test_index_route(client):
 
 
 def test_recommend_route(client):
-  """Test the recommend route returns hardcoded IDs."""
-  # Send a sample payload
-  payload = {"input": "some user data"}
-  response = client.post("/recommend", data=json.dumps(payload), content_type="application/json")
+  """Test the recommend route returns hardcoded IDs as CSV."""
+  userid = "123"
+  response = client.get(f"/recommend/{userid}")
 
   assert response.status_code == 200
-  data = json.loads(response.data)
-
-  assert data["status"] == "success"
-  assert "recommended_movie_ids" in data
-  # Check for the hardcoded IDs we defined in models.py
-  assert data["recommended_movie_ids"] == [101, 204, 550, 892, 12]
+  # The response is now a CSV string
+  data = response.data.decode("utf-8")
+  expected_ids = "101,204,550,892,12"
+  assert data == expected_ids
 
 
-def test_recommend_route_no_data(client):
-  """Test that the route handles empty requests gracefully."""
-  response = client.post("/recommend", content_type="application/json")
-
-  # Depending on how request.get_json() behaves with no data,
-  # it might return None or raise an error internally if force=True.
-  # Our current implementation accepts None but standard flask behavior
-  # for get_json() without data allows it.
-
-  assert response.status_code == 200
-  data = json.loads(response.data)
-  assert data["status"] == "success"
-  assert isinstance(data["recommended_movie_ids"], list)
+def test_recommend_route_missing_userid(client):
+  """Test that the route returns 404 if userid is missing."""
+  response = client.get("/recommend")
+  assert response.status_code == 404
