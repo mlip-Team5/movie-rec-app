@@ -10,7 +10,7 @@
    Note that it is recommended to set up a virtual python environment prior to running the app to prevent dependency conflicts
 
 ## Running the app
-You can either run `python app.py` or do the following in your terminal
+You can either run `python src/app.py` or do the following in your terminal
 ```
 export FLASK_APP=src/app.py
 export FLASK_ENV=development
