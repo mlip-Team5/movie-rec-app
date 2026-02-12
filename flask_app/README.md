@@ -12,7 +12,7 @@
 ## Running the app
 You can either run `python app.py` or do the following in your terminal
 ```
-export FLASK_APP=app.py
+export FLASK_APP=src/app.py
 export FLASK_ENV=development
 flask run
 ```
