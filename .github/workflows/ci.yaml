@@ -38,5 +38,6 @@ jobs:
           ruff format . --check
 
       - name: Run Tests
+        working-directory: ./flask_app
         run: |
           pytest
