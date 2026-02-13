@@ -5,17 +5,8 @@ exclude = ["migrations", "__pycache__", ".venv"]
 indent-width = 2
 
 [tool.ruff.lint]
-select = [
-    "E",   # pycodestyle errors
-    "F",   # pyflakes
-    "I",   # import sorting
-    "B",   # bugbear (very useful)
-    "UP"   # python upgrades
-]
-
-ignore = [
-    "E501"  # ignore long lines if you want flexibility
-]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -23,3 +14,4 @@ indent-style = "space"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+addopts = "--cov=src --cov-report=term-missing --cov-report=html"

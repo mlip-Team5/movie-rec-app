@@ -1,28 +1,48 @@
-# Movie Recommendation Flask App
+# Movie Recommendation Service
 
-## Setup
+## Quick Start (Docker)
 
-1. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-   Note that it is recommended to set up a virtual python environment prior to running the app to prevent dependency conflicts
-
-## Running the app
-You can either run `python src/app.py` or do the following in your terminal
+```bash
+# from movie-rec-app/
+docker compose up --build
 ```
-export FLASK_APP=src/app.py
-export FLASK_ENV=development
-flask run
+
+Service runs at `http://localhost:8082/recommend/<userid>`
+
+## Local Development
+
+```bash
+cd flask_app
+python -m venv venv && source venv/bin/activate
+pip install -r requirements-dev.txt
+python src/app.py
 ```
+
+## Testing
+
+```bash
+cd flask_app
+pytest
+```
+
+## API
+
+| Endpoint | Method | Response |
+|---|---|---|
+| `/recommend/<userid>` | GET | Comma-separated movie IDs (plain text) |
+| `/health` | GET | `{"status": "healthy"}` |
+| `/` | GET | Status message |
 
 ## Project Structure
 
-*   **src/**: Source code for the application.
-    *   `app.py`: Main entry point that initializes the Flask app and registers blueprints.
-    *   `models.py`: Contains the `RecommenderModel` class responsible for prediction logic.
-    *   `routes.py`: Defines the API endpoints (Controller) and handles request processing.
-*   **tests/**: Contains unit tests.
-    *   `test_app.py`: Tests for the API endpoints using `pytest`.
-*   **pyproject.toml**: Configuration file for development tools like `ruff` (linting/formatting) and `pytest`.
+```
+flask_app/
+  src/
+    app.py       - Flask app factory + entrypoint
+    routes.py    - API endpoints
+    models.py    - Recommendation model interface
+  tests/
+    test_app.py  - Endpoint tests
+  Dockerfile     - Production container
+docker-compose.yml - Service orchestration
+```

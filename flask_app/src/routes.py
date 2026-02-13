@@ -1,19 +1,29 @@
-from flask import Blueprint, jsonify
+import logging
+import time
+
+from flask import Blueprint, Response, jsonify
 
 from models import RecommenderModel
+
+logger = logging.getLogger(__name__)
 
 main = Blueprint("main", __name__)
 model = RecommenderModel()
 
 
-@main.route("/recommend/<userid>", methods=["GET"])
+@main.route("/recommend/<int:userid>", methods=["GET"])
 def recommend(userid):
+  start = time.time()
   try:
     predictions = model.predict(userid)
-    movie_ids = ",".join(map(str, predictions))
-    return movie_ids
+    result = ",".join(str(mid) for mid in predictions)
+    elapsed_ms = (time.time() - start) * 1000
+    logger.info(f"user={userid} recs={len(predictions)} time={elapsed_ms:.1f}ms")
+    return Response(result, mimetype="text/plain")
   except Exception as e:
-    return jsonify({"status": "error", "message": str(e)}), 500
+    elapsed_ms = (time.time() - start) * 1000
+    logger.error(f"user={userid} error={e} time={elapsed_ms:.1f}ms")
+    return Response("", mimetype="text/plain"), 500
 
 
 @main.route("/", methods=["GET"])

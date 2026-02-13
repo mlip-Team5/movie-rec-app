@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ruff_cache/
+.git/
+.github/
+tests/
+*.md
+pyproject.toml
+.env
+.DS_Store
