@@ -1,0 +1,78 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: moviedb
+      POSTGRES_USER: movieapp
+      POSTGRES_PASSWORD: movieapp123
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U movieapp -d moviedb"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  recommendation-service:
+    build:
+      context: ./service
+      dockerfile: Dockerfile
+    ports:
+      - "8082:8082"
+    environment:
+      - REDIS_HOST=redis
+      - MODEL_DIR=/app/models
+    volumes:
+      - model-data:/app/models
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8082/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  kafka-consumer:
+    build:
+      context: ./pipeline
+      dockerfile: Dockerfile
+    environment:
+      - KAFKA_BROKER=${KAFKA_BROKER:-128.2.220.241:9092}
+      - KAFKA_TOPIC=${KAFKA_TOPIC:-movielog5}
+      - KAFKA_GROUP_ID=${KAFKA_GROUP_ID:-team05-consumer}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=moviedb
+      - POSTGRES_USER=movieapp
+      - POSTGRES_PASSWORD=movieapp123
+      - REDIS_HOST=redis
+      - MODEL_DIR=/app/models
+      - API_BASE_URL=${API_BASE_URL:-http://128.2.220.241:8080}
+    volumes:
+      - model-data:/app/models
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pg-data:
+  model-data:

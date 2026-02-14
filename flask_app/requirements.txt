@@ -1,3 +1,0 @@
-Flask
-ruff
-pytest

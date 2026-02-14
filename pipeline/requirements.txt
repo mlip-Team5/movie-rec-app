@@ -1,0 +1,9 @@
+scikit-surprise
+scikit-learn
+pandas
+numpy
+scipy
+confluent-kafka
+psycopg2-binary
+redis
+requests

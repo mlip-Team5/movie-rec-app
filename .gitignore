@@ -1,3 +1,16 @@
 __pycache__/
+*.pyc
 .venv/
+venv/
+.ruff_cache/
 */.ruff_cache/
+.env
+*.pkl
+*.joblib
+*.h5
+data/
+*.log
+.DS_Store
+.coverage
+htmlcov/
+.pytest_cache/

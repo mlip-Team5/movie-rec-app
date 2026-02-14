@@ -1,0 +1,112 @@
+"""Kafka consumer: ingests events from movielog and stores them in Postgres."""
+
+import logging
+
+from confluent_kafka import Consumer, KafkaError
+
+from config import KAFKA_BROKER, KAFKA_GROUP_ID, KAFKA_TOPIC
+from ingestion.api_client import fetch_movie, fetch_user
+from ingestion.parser import parse_log_line
+from ingestion.validators import validate_rating, validate_watch
+from storage.postgres import get_connection, init_db, upsert_movie, upsert_rating, upsert_user, upsert_watch
+
+logger = logging.getLogger(__name__)
+
+
+def run_consumer():
+  init_db()
+  conn = get_connection()
+
+  consumer = Consumer({
+    "bootstrap.servers": KAFKA_BROKER,
+    "group.id": KAFKA_GROUP_ID,
+    "auto.offset.reset": "earliest",
+    "enable.auto.commit": True,
+    "session.timeout.ms": 30000,
+  })
+  consumer.subscribe([KAFKA_TOPIC])
+  logger.info("Consuming from %s at %s", KAFKA_TOPIC, KAFKA_BROKER)
+
+  known_movies = set()
+  known_users = set()
+  count = 0
+  errors = 0
+
+  try:
+    while True:
+      msg = consumer.poll(1.0)
+      if msg is None:
+        continue
+      if msg.error():
+        if msg.error().code() == KafkaError._PARTITION_EOF:
+          continue
+        logger.error("Kafka error: %s", msg.error())
+        continue
+
+      event = parse_log_line(msg.value().decode("utf-8", errors="replace"))
+      if not event:
+        continue
+
+      try:
+        etype = event["type"]
+
+        if etype == "rating":
+          ok, _ = validate_rating(event)
+          if not ok:
+            errors += 1
+            continue
+          upsert_rating(conn, event["user_id"], event["movie_id"], event["rating"], event.get("timestamp"))
+          _ensure_movie(conn, event["movie_id"], known_movies)
+
+        elif etype == "watch":
+          ok, _ = validate_watch(event)
+          if not ok:
+            errors += 1
+            continue
+          upsert_watch(conn, event["user_id"], event["movie_id"])
+          _ensure_movie(conn, event["movie_id"], known_movies)
+
+        elif etype == "new_account":
+          _ensure_user(conn, event["user_id"], known_users)
+
+        count += 1
+        if count % 10000 == 0:
+          logger.info("Processed %d events (%d validation errors)", count, errors)
+
+      except Exception as e:
+        logger.error("Error processing event: %s", e)
+        try:
+          conn.close()
+        except Exception:
+          pass
+        conn = get_connection()
+
+  except KeyboardInterrupt:
+    logger.info("Shutting down")
+  finally:
+    consumer.close()
+    conn.close()
+
+
+def _ensure_movie(conn, movie_id, known):
+  if movie_id in known:
+    return
+  known.add(movie_id)
+  cur = conn.cursor()
+  cur.execute("SELECT 1 FROM movies WHERE movie_id = %s", (movie_id,))
+  exists = cur.fetchone()
+  cur.close()
+  if not exists:
+    data = fetch_movie(movie_id)
+    if data:
+      upsert_movie(conn, data.get("id", movie_id), data)
+
+
+def _ensure_user(conn, user_id, known):
+  if user_id in known:
+    return
+  known.add(user_id)
+  data = fetch_user(user_id)
+  if data:
+    upsert_user(conn, user_id, data)
+    logger.debug("Stored new user %d", user_id)
