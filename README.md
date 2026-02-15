@@ -328,8 +328,8 @@ cp .env.example .env
 # 3. Start infrastructure
 docker compose up -d postgres redis
 
-# 4. Set up SSH tunnel for Kafka (password: )
-sshpass -p '' ssh -o ServerAliveInterval=60 -o StrictHostKeyChecking=no \
+# 4. Set up SSH tunnel for Kafka (password: mlip-kafka)
+sshpass -p 'mlip-kafka' ssh -o ServerAliveInterval=60 -o StrictHostKeyChecking=no \
   -L 9092:localhost:9092 tunnel@128.2.220.241 -NTf
 
 # 5. Create venv and install deps
