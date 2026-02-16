@@ -30,7 +30,10 @@ def recommend(userid):
 
     logger.info(
       "user=%d recs=%d tier=%s time=%.1fms",
-      userid, len(recs), tier, elapsed_ms,
+      userid,
+      len(recs),
+      tier,
+      elapsed_ms,
     )
     return Response(result, mimetype="text/plain")
   except Exception as e:
@@ -50,13 +53,15 @@ def index():
 def health():
   svd_loaded = recommender._svd is not None
   content_loaded = recommender._content is not None
-  return jsonify({
-    "status": "healthy",
-    "svd_loaded": svd_loaded,
-    "content_loaded": content_loaded,
-    "svd_users": len(recommender._svd["user_id_map"]) if svd_loaded else 0,
-    "svd_items": len(recommender._svd["raw_item_ids"]) if svd_loaded else 0,
-  })
+  return jsonify(
+    {
+      "status": "healthy",
+      "svd_loaded": svd_loaded,
+      "content_loaded": content_loaded,
+      "svd_users": len(recommender._svd["user_id_map"]) if svd_loaded else 0,
+      "svd_items": len(recommender._svd["raw_item_ids"]) if svd_loaded else 0,
+    }
+  )
 
 
 @main.route("/stats", methods=["GET"])

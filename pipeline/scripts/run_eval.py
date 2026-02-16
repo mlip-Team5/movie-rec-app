@@ -10,7 +10,6 @@ Usage:
 
 import argparse
 import logging
-import math
 import os
 import pickle
 import sys
@@ -181,8 +180,9 @@ def offline_eval():
     logger.info("  Movies:     %d", len(cd.get("movie_ids", [])))
     logger.info("  Genres:     %d (%s)", len(cd.get("genre_names", [])), cd.get("genre_names", []))
     logger.info("  Similarity: %d movies with neighbors", len(cd.get("sim_top_k", {})))
-    logger.info("  Size:       %.2f MB (content) + %.2f MB (tfidf)",
-                 content_size / _MB, tfidf_size / _MB)
+    logger.info(
+      "  Size:       %.2f MB (content) + %.2f MB (tfidf)", content_size / _MB, tfidf_size / _MB
+    )
   else:
     logger.warning("  content_data.pkl not found")
 
@@ -214,7 +214,9 @@ def online_eval():
     logger.info("  First:      %s", first_ts)
     logger.info("  Last:       %s", last_ts)
     if total == 0:
-      logger.info("  (No recommendation logs yet — course server may not have started hitting your API)")
+      logger.info(
+        "  (No recommendation logs yet — course server may not have started hitting your API)"
+      )
   except Exception as e:
     logger.warning("Could not read recommendation_logs: %s", e)
     conn.rollback()
@@ -232,10 +234,14 @@ def online_eval():
       unique = len(set(recs_list))
       total_r = len(recs_list)
       logger.info("\nPersonalization (last %d successful requests):", total_r)
-      logger.info("  Unique recommendation lists: %d / %d (%.1f%%)", unique, total_r, unique / total_r * 100)
+      logger.info(
+        "  Unique recommendation lists: %d / %d (%.1f%%)", unique, total_r, unique / total_r * 100
+      )
       min_personalization = float(os.environ.get("MIN_PERSONALIZATION", 0.1))
       if unique / total_r < min_personalization:
-        logger.warning("  LOW PERSONALIZATION: less than %.0f%% unique lists", min_personalization * 100)
+        logger.warning(
+          "  LOW PERSONALIZATION: less than %.0f%% unique lists", min_personalization * 100
+        )
       else:
         logger.info("  Personalization looks good")
   except Exception as e:

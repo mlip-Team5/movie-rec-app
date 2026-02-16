@@ -29,13 +29,15 @@ def run_consumer():
   init_db()
   conn = get_connection()
 
-  consumer = Consumer({
-    "bootstrap.servers": KAFKA_BROKER,
-    "group.id": KAFKA_GROUP_ID,
-    "auto.offset.reset": "earliest",
-    "enable.auto.commit": True,
-    "session.timeout.ms": KAFKA_SESSION_TIMEOUT_MS,
-  })
+  consumer = Consumer(
+    {
+      "bootstrap.servers": KAFKA_BROKER,
+      "group.id": KAFKA_GROUP_ID,
+      "auto.offset.reset": "earliest",
+      "enable.auto.commit": True,
+      "session.timeout.ms": KAFKA_SESSION_TIMEOUT_MS,
+    }
+  )
   consumer.subscribe([KAFKA_TOPIC])
   logger.info("Consuming from %s at %s", KAFKA_TOPIC, KAFKA_BROKER)
 
@@ -71,7 +73,9 @@ def run_consumer():
             errors += 1
             logger.debug("Invalid rating: %s", reason)
             continue
-          upsert_rating(conn, event["user_id"], event["movie_id"], event["rating"], event.get("timestamp"))
+          upsert_rating(
+            conn, event["user_id"], event["movie_id"], event["rating"], event.get("timestamp")
+          )
           _ensure_movie(conn, event["movie_id"], known_movies)
 
         elif etype == "watch":

@@ -67,12 +67,16 @@ def _from_content(likes_text, dislikes_text=""):
       return None
 
     oversampled = MAX_RECS * 2
-    recs = recommend_from_text(likes_text, content_data, vectorizer, tfidf_matrix, top_n=oversampled)
+    recs = recommend_from_text(
+      likes_text, content_data, vectorizer, tfidf_matrix, top_n=oversampled
+    )
     if not recs:
       return None
 
     if dislikes_text:
-      bad = set(recommend_from_text(dislikes_text, content_data, vectorizer, tfidf_matrix, top_n=MAX_RECS))
+      bad = set(
+        recommend_from_text(dislikes_text, content_data, vectorizer, tfidf_matrix, top_n=MAX_RECS)
+      )
       recs = [m for m in recs if m not in bad]
 
     return recs[:MAX_RECS]

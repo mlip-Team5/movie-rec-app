@@ -125,9 +125,7 @@ def upsert_watch(conn, user_id, movie_id):
 def upsert_movie(conn, movie_id, data):
   genres = data.get("genres", "")
   if isinstance(genres, list):
-    genres = ",".join(
-      g["name"] if isinstance(g, dict) and "name" in g else str(g) for g in genres
-    )
+    genres = ",".join(g["name"] if isinstance(g, dict) and "name" in g else str(g) for g in genres)
   cost = data.get("license_cost") or data.get("cost") or 0
   cur = conn.cursor()
   cur.execute(
@@ -187,7 +185,9 @@ def insert_raw_event(conn, timestamp, user_id, event_type, raw_line):
   cur.close()
 
 
-def insert_recommendation_log(conn, timestamp, user_id, server, status, recommendations, response_time):
+def insert_recommendation_log(
+  conn, timestamp, user_id, server, status, recommendations, response_time
+):
   recs_str = ",".join(str(r) for r in recommendations) if recommendations else ""
   cur = conn.cursor()
   cur.execute(

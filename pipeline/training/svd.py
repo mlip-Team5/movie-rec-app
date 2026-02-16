@@ -20,7 +20,11 @@ def train(ratings_df, n_factors=50, n_epochs=20):
   model.fit(trainset)
 
   model_data = _extract(model, trainset)
-  logger.info("SVD trained: %d users, %d items", len(model_data["user_id_map"]), len(model_data["raw_item_ids"]))
+  logger.info(
+    "SVD trained: %d users, %d items",
+    len(model_data["user_id_map"]),
+    len(model_data["raw_item_ids"]),
+  )
   return model_data
 
 
