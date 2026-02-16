@@ -4,6 +4,7 @@ from collections import defaultdict
 
 from flask import Blueprint, Response, jsonify
 
+from .config import RESPONSE_TIME_LIMIT_MS
 from .recommender import Recommender
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ def recommend(userid):
 
     _stats["total"] += 1
     _stats[f"tier:{tier}"] += 1
-    if elapsed_ms > 600:
+    if elapsed_ms > RESPONSE_TIME_LIMIT_MS:
       _stats["slow"] += 1
 
     logger.info(
@@ -65,7 +66,7 @@ def stats():
   data = {
     "total_requests": total,
     "errors": _stats.get("errors", 0),
-    "slow_requests_over_600ms": _stats.get("slow", 0),
+    f"slow_requests_over_{RESPONSE_TIME_LIMIT_MS}ms": _stats.get("slow", 0),
     "tier_distribution": {},
     "model": {
       "svd_loaded": recommender._svd is not None,

@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pandas as pd
 
-from config import MIN_RATINGS_TO_TRAIN, MODEL_DIR
+from config import MAX_RECS, MIN_RATINGS_TO_TRAIN, MODEL_DIR
 from storage.cache import RedisCache
 from storage.postgres import get_connection
 from training import svd as svd_module
@@ -75,11 +75,12 @@ def main():
   logger.info("Pre-computing hybrid recs (alpha=%.2f)...", alpha)
   precompute(model_data, content_data, ratings_df, cache, alpha=alpha)
 
+  popular_limit = MAX_RECS * 5
   conn = get_connection()
   popular_df = pd.read_sql(
-    """SELECT movie_id, AVG(rating) as avg_r, COUNT(*) as cnt
+    f"""SELECT movie_id, AVG(rating) as avg_r, COUNT(*) as cnt
        FROM ratings GROUP BY movie_id HAVING COUNT(*) >= 5
-       ORDER BY avg_r DESC, cnt DESC LIMIT 100""",
+       ORDER BY avg_r DESC, cnt DESC LIMIT {popular_limit}""",
     conn,
   )
   conn.close()

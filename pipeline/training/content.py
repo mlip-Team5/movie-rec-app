@@ -8,7 +8,7 @@ import numpy as np
 from scipy.sparse import load_npz
 from sklearn.metrics.pairwise import cosine_similarity
 
-from config import MODEL_DIR
+from config import MAX_RECS, MODEL_DIR, RATING_SCALE
 
 logger = logging.getLogger(__name__)
 
@@ -30,17 +30,19 @@ def load_tfidf():
   return vectorizer, matrix
 
 
-def recommend_for_user(user_id, ratings_df, content_data, top_n=20):
+def recommend_for_user(user_id, ratings_df, content_data, top_n=MAX_RECS):
   """Recommend movies similar to a user's top-rated items."""
   sim_top_k = content_data["sim_top_k"]
   mid_to_idx = content_data["movie_id_to_idx"]
   idx_to_mid = content_data["idx_to_movie_id"]
+  rating_max = RATING_SCALE[1]
 
   user_ratings = ratings_df[ratings_df["user_id"] == user_id]
   if user_ratings.empty:
     return []
 
-  top_rated = user_ratings.nlargest(5, "rating")
+  seed_count = max(1, top_n // 4)
+  top_rated = user_ratings.nlargest(seed_count, "rating")
   rated_set = set(user_ratings["movie_id"].tolist())
 
   scores = {}
@@ -48,7 +50,7 @@ def recommend_for_user(user_id, ratings_df, content_data, top_n=20):
     idx = mid_to_idx.get(row["movie_id"])
     if idx is None or idx not in sim_top_k:
       continue
-    weight = row["rating"] / 10.0
+    weight = row["rating"] / rating_max
     for sim_idx, sim_score in sim_top_k[idx]:
       sim_mid = idx_to_mid.get(sim_idx)
       if sim_mid and sim_mid not in rated_set:
@@ -58,7 +60,7 @@ def recommend_for_user(user_id, ratings_df, content_data, top_n=20):
   return ranked[:top_n]
 
 
-def recommend_from_text(text, content_data, vectorizer, tfidf_matrix, top_n=20):
+def recommend_from_text(text, content_data, vectorizer, tfidf_matrix, top_n=MAX_RECS):
   """Recommend movies from free text (user self-description)."""
   if not text or vectorizer is None:
     return []
@@ -84,11 +86,13 @@ def scores_for_user(user_id, ratings_df, content_data, n_items, raw_item_ids):
   if user_ratings.empty:
     return scores
 
-  for _, row in user_ratings.nlargest(10, "rating").iterrows():
+  rating_max = RATING_SCALE[1]
+  seed_count = max(1, MAX_RECS // 2)
+  for _, row in user_ratings.nlargest(seed_count, "rating").iterrows():
     content_idx = mid_to_idx.get(row["movie_id"])
     if content_idx is None or content_idx not in sim_top_k:
       continue
-    weight = row["rating"] / 10.0
+    weight = row["rating"] / rating_max
     for sim_content_idx, sim_score in sim_top_k[content_idx]:
       sim_mid = idx_to_mid.get(sim_content_idx)
       if sim_mid is not None:
@@ -96,9 +100,8 @@ def scores_for_user(user_id, ratings_df, content_data, n_items, raw_item_ids):
         if pos is not None:
           scores[pos] += sim_score * weight
 
-  # Normalize to match SVD score range
   if scores.max() > 0:
-    scores = scores / scores.max() * 10.0
+    scores = scores / scores.max() * rating_max
 
   return scores
 

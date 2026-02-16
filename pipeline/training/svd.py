@@ -5,12 +5,14 @@ import logging
 import numpy as np
 from surprise import SVD, Dataset, Reader
 
+from config import RATING_SCALE
+
 logger = logging.getLogger(__name__)
 
 
 def train(ratings_df, n_factors=50, n_epochs=20):
   """Train SVD model and return (model_data dict, trainset)."""
-  reader = Reader(rating_scale=(1, 10))
+  reader = Reader(rating_scale=RATING_SCALE)
   data = Dataset.load_from_df(ratings_df[["user_id", "movie_id", "rating"]], reader)
   trainset = data.build_full_trainset()
 

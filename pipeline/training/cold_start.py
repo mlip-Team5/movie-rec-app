@@ -2,6 +2,7 @@
 
 import logging
 
+from config import MAX_RECS
 from storage.postgres import get_connection
 from training.content import load_content_data, load_tfidf, recommend_from_text
 
@@ -65,15 +66,16 @@ def _from_content(likes_text, dislikes_text=""):
     if content_data is None or vectorizer is None:
       return None
 
-    recs = recommend_from_text(likes_text, content_data, vectorizer, tfidf_matrix, top_n=40)
+    oversampled = MAX_RECS * 2
+    recs = recommend_from_text(likes_text, content_data, vectorizer, tfidf_matrix, top_n=oversampled)
     if not recs:
       return None
 
     if dislikes_text:
-      bad = set(recommend_from_text(dislikes_text, content_data, vectorizer, tfidf_matrix, top_n=20))
+      bad = set(recommend_from_text(dislikes_text, content_data, vectorizer, tfidf_matrix, top_n=MAX_RECS))
       recs = [m for m in recs if m not in bad]
 
-    return recs[:20]
+    return recs[:MAX_RECS]
   except Exception as e:
     logger.debug("Content cold-start failed: %s", e)
     return None
@@ -98,7 +100,7 @@ def _from_genres(conn, likes_text, dislikes_text=""):
     query += exclude
     params.extend(dis_pats)
 
-  query += " ORDER BY vote_average DESC, popularity DESC LIMIT 20"
+  query += f" ORDER BY vote_average DESC, popularity DESC LIMIT {MAX_RECS}"
 
   cur = conn.cursor()
   cur.execute(query, params)

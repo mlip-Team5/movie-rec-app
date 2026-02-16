@@ -1,10 +1,11 @@
 """Kafka consumer: ingests events from the movielog stream into Postgres."""
 
 import logging
+import os
 
 from confluent_kafka import Consumer, KafkaError
 
-from config import KAFKA_BROKER, KAFKA_GROUP_ID, KAFKA_TOPIC
+from config import KAFKA_BROKER, KAFKA_GROUP_ID, KAFKA_SESSION_TIMEOUT_MS, KAFKA_TOPIC
 from ingestion.api_client import fetch_movie, fetch_user
 from ingestion.parser import parse_log_line
 from ingestion.validators import validate_rating, validate_recommendation, validate_watch
@@ -21,6 +22,8 @@ from storage.postgres import (
 
 logger = logging.getLogger(__name__)
 
+LOG_INTERVAL = int(os.environ.get("CONSUMER_LOG_INTERVAL", 10000))
+
 
 def run_consumer():
   init_db()
@@ -31,7 +34,7 @@ def run_consumer():
     "group.id": KAFKA_GROUP_ID,
     "auto.offset.reset": "earliest",
     "enable.auto.commit": True,
-    "session.timeout.ms": 30000,
+    "session.timeout.ms": KAFKA_SESSION_TIMEOUT_MS,
   })
   consumer.subscribe([KAFKA_TOPIC])
   logger.info("Consuming from %s at %s", KAFKA_TOPIC, KAFKA_BROKER)
@@ -100,7 +103,7 @@ def run_consumer():
           )
 
         count += 1
-        if count % 10000 == 0:
+        if LOG_INTERVAL > 0 and count % LOG_INTERVAL == 0:
           logger.info("Processed %d events (%d validation errors)", count, errors)
 
       except Exception as e:

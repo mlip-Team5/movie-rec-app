@@ -11,7 +11,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import MultiLabelBinarizer
 
-from config import MODEL_DIR
+from config import MODEL_DIR, SIMILARITY_TOP_K, TFIDF_MAX_FEATURES
 from storage.postgres import get_connection
 
 logger = logging.getLogger(__name__)
@@ -46,12 +46,12 @@ def build_and_save():
 
   logger.info("Computing TF-IDF on %d movies...", len(movies_df))
   content_strings = _build_content_strings(movies_df)
-  tfidf = TfidfVectorizer(stop_words="english", max_features=5000)
+  tfidf = TfidfVectorizer(stop_words="english", max_features=TFIDF_MAX_FEATURES)
   tfidf_matrix = tfidf.fit_transform(content_strings)
   logger.info("TF-IDF matrix: %s", tfidf_matrix.shape)
 
   logger.info("Computing content similarity...")
-  sim_top_k = _compute_similarity(tfidf_matrix, top_k=50)
+  sim_top_k = _compute_similarity(tfidf_matrix, top_k=SIMILARITY_TOP_K)
 
   genre_names = _load_genres_from_db()
   genre_matrix = _compute_genre_vectors(movies_df, genre_names)

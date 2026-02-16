@@ -2,6 +2,8 @@
 
 import logging
 
+from config import RATING_SCALE
+
 logger = logging.getLogger(__name__)
 
 
@@ -14,7 +16,7 @@ def validate_rating(event):
   if not mid or not isinstance(mid, str):
     return False, "invalid movie_id"
   r = event.get("rating")
-  if not isinstance(r, (int, float)) or r < 1 or r > 10:
+  if not isinstance(r, (int, float)) or r < RATING_SCALE[0] or r > RATING_SCALE[1]:
     return False, f"rating out of range: {r}"
   return True, None
 

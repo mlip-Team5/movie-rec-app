@@ -6,12 +6,9 @@ import pickle
 
 import numpy as np
 
-from .config import MODEL_DIR, REDIS_HOST, REDIS_PORT
+from .config import CACHE_TTL, MAX_RECS, MODEL_DIR, REDIS_HOST, REDIS_PORT
 
 logger = logging.getLogger(__name__)
-
-CACHE_TTL = int(os.environ.get("RECS_CACHE_TTL", 3600))
-MAX_RECS = int(os.environ.get("MAX_RECS", 20))
 
 
 class Recommender:
@@ -140,10 +137,12 @@ class Recommender:
     if votes is None or len(votes) == 0:
       return None
 
-    top_voted = np.argsort(votes)[-5:][::-1]
+    seed_count = max(1, limit // 4)
+    top_voted = np.argsort(votes)[-seed_count:][::-1]
     candidates = {}
+    neighbors_per_seed = max(1, limit // seed_count)
     for seed in top_voted:
-      for sim_idx, score in sim.get(seed, [])[:10]:
+      for sim_idx, score in sim.get(seed, [])[:neighbors_per_seed]:
         mid = idx_to_mid.get(sim_idx)
         if mid:
           candidates[mid] = candidates.get(mid, 0) + score

@@ -17,6 +17,7 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from config import API_BATCH_SIZE, API_SLEEP
 from ingestion.api_client import fetch_movies_bulk, fetch_users_bulk
 from storage.postgres import get_connection, init_db, upsert_movie, upsert_user
 
@@ -31,17 +32,17 @@ def collect_movies(conn, max_id):
   logger.info("Fetching movies 1-%d from course API...", max_id)
   all_ids = list(range(1, max_id + 1))
   fetched = 0
-  for i in range(0, len(all_ids), 200):
-    batch = all_ids[i : i + 200]
+  for i in range(0, len(all_ids), API_BATCH_SIZE):
+    batch = all_ids[i : i + API_BATCH_SIZE]
     movies = fetch_movies_bulk(batch)
     for m in movies:
       mid = m.get("id", m.get("movie_id"))
       if mid:
         upsert_movie(conn, mid, m)
         fetched += 1
-    if (i // 200) % 10 == 0:
+    if (i // API_BATCH_SIZE) % 10 == 0:
       logger.info("  fetched %d movies so far...", fetched)
-    time.sleep(0.3)
+    time.sleep(API_SLEEP)
   logger.info("Collected %d movies", fetched)
 
 
@@ -49,17 +50,17 @@ def collect_users(conn, max_id):
   logger.info("Fetching users 1-%d from course API...", max_id)
   all_ids = list(range(1, max_id + 1))
   fetched = 0
-  for i in range(0, len(all_ids), 200):
-    batch = all_ids[i : i + 200]
+  for i in range(0, len(all_ids), API_BATCH_SIZE):
+    batch = all_ids[i : i + API_BATCH_SIZE]
     users = fetch_users_bulk(batch)
     for u in users:
       uid = u.get("user_id", u.get("id"))
       if uid:
         upsert_user(conn, int(uid), u)
         fetched += 1
-    if (i // 200) % 50 == 0:
+    if (i // API_BATCH_SIZE) % 50 == 0:
       logger.info("  fetched %d users so far...", fetched)
-    time.sleep(0.3)
+    time.sleep(API_SLEEP)
   logger.info("Collected %d users", fetched)
 
 
