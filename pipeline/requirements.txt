@@ -1,7 +1,7 @@
 scikit-surprise
 scikit-learn
 pandas
-numpy
+numpy<2
 scipy
 confluent-kafka
 psycopg2-binary
