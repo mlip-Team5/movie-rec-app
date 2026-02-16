@@ -944,16 +944,47 @@ cd pipeline && python -m pytest tests/ -v
 
 ## 15. Team Contract
 
-> *[TODO: Insert or link team contract here]*
+### Communication
 
-The team contract should cover:
-1. How will we communicate?
-2. How will we make decisions?
-3. How will we handle conflict?
-4. How will we handle someone not contributing?
-5. How will we handle someone wanting to leave the team?
+- **Primary channel:** Team Slack channel for day-to-day discussion, code reviews, and quick questions.
+- **Meetings:** Weekly sync meeting (30-60 min) to review progress, blockers, and plan the next sprint. Ad-hoc calls for urgent issues.
+- **Response time:** Team members respond to messages within 24 hours on weekdays.
+- **Code updates:** All changes go through pull requests with at least one reviewer before merging.
 
-> *[TODO: Insert teamwork notes / screenshot showing work division (who did what by when)]*
+### Decision Making
+
+- **Technical decisions:** Discussed in team meetings or Slack. If there's disagreement, we present trade-offs and vote. Majority rules. For tie-breakers, we defer to whoever has the most context on that subsystem.
+- **Architecture decisions:** Require consensus from all team members before implementation.
+- **Deadlines:** Set collaboratively during weekly syncs. Each member commits to their deliverables.
+
+### Conflict Resolution
+
+- **Step 1:** Raise the issue directly with the person involved in a private, respectful conversation.
+- **Step 2:** If unresolved, bring it to the full team during the next meeting for open discussion.
+- **Step 3:** If still unresolved, escalate to the team mentor for mediation.
+- We commit to assuming good intent and focusing on the problem, not the person.
+
+### Handling Non-Contributing Members
+
+- **First occurrence:** Bring it up respectfully in the team meeting. Understand if there are external factors (illness, other deadlines). Redistribute work temporarily if needed.
+- **Repeated pattern:** Document the issue and have a direct conversation with the member. Set clear expectations and a timeline for improvement.
+- **Escalation:** If no improvement after two weeks, raise with the team mentor and course staff.
+
+### Handling a Member Wanting to Leave
+
+- The member must communicate their intent at least one week before the next milestone deadline.
+- The team will redistribute their remaining work and document the transition.
+- The departing member must complete any in-progress work or provide a clear handoff.
+- Escalate to course staff immediately to discuss grading implications.
+
+### Work Division (Milestone 1)
+
+| Team Member | Responsibilities | Deadline |
+|---|---|---|
+| Shreya Verma | ML pipeline (SVD + content-based + hybrid), Kafka consumer, PostgreSQL schema, cold-start implementation, Docker orchestration, evaluation metrics, deployment on VM | M1 submission |
+| *(Add other team members and their tasks here)* | | |
+
+> *[TODO: Add screenshot of teamwork notes or link to shared document showing detailed task tracking]*
 
 ---
 
