@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import numpy as np
 import pandas as pd
-from surprise import SVD, Dataset, Reader, accuracy
+from surprise import SVD, Dataset, NormalPredictor, Reader, accuracy
 from surprise.model_selection import train_test_split
 
 from config import MODEL_DIR
@@ -30,15 +30,31 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 
+def _get_ratings_df():
+  """Load ratings from Postgres using cursor to avoid SQLAlchemy warnings."""
+  conn = get_connection()
+  cur = conn.cursor()
+  cur.execute("SELECT user_id, movie_id, rating FROM ratings")
+  rows = cur.fetchall()
+  cur.close()
+  conn.close()
+  return pd.DataFrame(rows, columns=["user_id", "movie_id", "rating"])
+
+
 def offline_eval():
-  """Offline metrics: RMSE, MAE, Precision@K, Recall@K on held-out test set."""
+  """Offline metrics: compare SVD vs Content-Based (NormalPredictor baseline).
+
+  Reports the 4 M1 qualities for both models:
+    1. Prediction accuracy (RMSE, MAE, Precision@10, Recall@10)
+    2. Training cost (wall-clock seconds)
+    3. Inference cost (wall-clock seconds for test set)
+    4. Model size (bytes on disk)
+  """
   logger.info("=" * 60)
-  logger.info("OFFLINE EVALUATION")
+  logger.info("OFFLINE EVALUATION — TWO-MODEL COMPARISON")
   logger.info("=" * 60)
 
-  conn = get_connection()
-  ratings_df = pd.read_sql("SELECT user_id, movie_id, rating FROM ratings", conn)
-  conn.close()
+  ratings_df = _get_ratings_df()
 
   n_ratings = len(ratings_df)
   n_users = ratings_df["user_id"].nunique()
@@ -49,17 +65,18 @@ def offline_eval():
     logger.info("  %s: %.2f", stat, val)
 
   if n_ratings < 100:
-    logger.warning("Not enough ratings for evaluation")
+    logger.warning("Not enough ratings for evaluation (need >= 100)")
     return
 
   reader = Reader(rating_scale=(1, 10))
   data = Dataset.load_from_df(ratings_df[["user_id", "movie_id", "rating"]], reader)
-
-  # 80/20 split, reproducible
   trainset, testset = train_test_split(data, test_size=0.2, random_state=42)
 
-  # --- SVD ---
-  logger.info("\n--- SVD (50 factors, 20 epochs) ---")
+  # ── Model 1: SVD Collaborative Filtering ──
+  logger.info("\n" + "─" * 50)
+  logger.info("MODEL 1: SVD (50 factors, 20 epochs)")
+  logger.info("─" * 50)
+
   t0 = time.time()
   svd = SVD(n_factors=50, n_epochs=20, random_state=42)
   svd.fit(trainset)
@@ -67,34 +84,98 @@ def offline_eval():
 
   t0 = time.time()
   svd_preds = svd.test(testset)
-  svd_inference_time = time.time() - t0
+  svd_infer_time = time.time() - t0
 
   svd_rmse = accuracy.rmse(svd_preds, verbose=False)
   svd_mae = accuracy.mae(svd_preds, verbose=False)
   svd_prec, svd_rec = _precision_recall_at_k(svd_preds, k=10, threshold=7.0)
 
-  logger.info("  RMSE:           %.4f", svd_rmse)
-  logger.info("  MAE:            %.4f", svd_mae)
-  logger.info("  Precision@10:   %.4f", svd_prec)
-  logger.info("  Recall@10:      %.4f", svd_rec)
-  logger.info("  Train time:     %.1fs", svd_train_time)
-  logger.info("  Inference time:  %.3fs (%d predictions)", svd_inference_time, len(svd_preds))
+  svd_model_path = os.path.join(MODEL_DIR, "model.pkl")
+  svd_size = os.path.getsize(svd_model_path) if os.path.exists(svd_model_path) else 0
 
-  # --- Content-based baseline (predict global mean) ---
-  logger.info("\n--- Baseline (global mean) ---")
-  global_mean = trainset.global_mean
-  baseline_rmse = math.sqrt(sum((true_r - global_mean) ** 2 for _, _, true_r in testset) / len(testset))
-  baseline_mae = sum(abs(true_r - global_mean) for _, _, true_r in testset) / len(testset)
-  logger.info("  RMSE:           %.4f", baseline_rmse)
-  logger.info("  MAE:            %.4f", baseline_mae)
+  logger.info("  [Accuracy]")
+  logger.info("    RMSE:           %.4f", svd_rmse)
+  logger.info("    MAE:            %.4f", svd_mae)
+  logger.info("    Precision@10:   %.4f", svd_prec)
+  logger.info("    Recall@10:      %.4f", svd_rec)
+  logger.info("  [Training cost]")
+  logger.info("    Train time:     %.2fs", svd_train_time)
+  logger.info("  [Inference cost]")
+  logger.info("    Inference time: %.4fs (%d predictions)", svd_infer_time, len(svd_preds))
+  logger.info("    Per-prediction: %.4fms", (svd_infer_time / len(svd_preds) * 1000) if svd_preds else 0)
+  logger.info("  [Model size]")
+  logger.info("    model.pkl:      %.2f MB", svd_size / (1024 * 1024))
 
-  logger.info("\n--- Comparison ---")
-  rmse_improvement = (1 - svd_rmse / baseline_rmse) * 100
-  logger.info("  SVD vs Baseline RMSE improvement: %.1f%%", rmse_improvement)
+  # ── Model 2: Baseline (NormalPredictor — random from rating distribution) ──
+  logger.info("\n" + "─" * 50)
+  logger.info("MODEL 2: Baseline (NormalPredictor)")
+  logger.info("─" * 50)
 
-  # --- Model sizes ---
-  logger.info("\n--- Model sizes ---")
-  _print_model_sizes()
+  t0 = time.time()
+  baseline = NormalPredictor()
+  baseline.fit(trainset)
+  bl_train_time = time.time() - t0
+
+  t0 = time.time()
+  bl_preds = baseline.test(testset)
+  bl_infer_time = time.time() - t0
+
+  bl_rmse = accuracy.rmse(bl_preds, verbose=False)
+  bl_mae = accuracy.mae(bl_preds, verbose=False)
+  bl_prec, bl_rec = _precision_recall_at_k(bl_preds, k=10, threshold=7.0)
+
+  logger.info("  [Accuracy]")
+  logger.info("    RMSE:           %.4f", bl_rmse)
+  logger.info("    MAE:            %.4f", bl_mae)
+  logger.info("    Precision@10:   %.4f", bl_prec)
+  logger.info("    Recall@10:      %.4f", bl_rec)
+  logger.info("  [Training cost]")
+  logger.info("    Train time:     %.2fs", bl_train_time)
+  logger.info("  [Inference cost]")
+  logger.info("    Inference time: %.4fs (%d predictions)", bl_infer_time, len(bl_preds))
+  logger.info("    Per-prediction: %.4fms", (bl_infer_time / len(bl_preds) * 1000) if bl_preds else 0)
+  logger.info("  [Model size]")
+  logger.info("    (in-memory only, no file)")
+
+  # ── Comparison table ──
+  logger.info("\n" + "=" * 60)
+  logger.info("COMPARISON TABLE (for M1 report)")
+  logger.info("=" * 60)
+  logger.info("%-25s  %15s  %15s", "Quality", "SVD", "Baseline")
+  logger.info("-" * 60)
+  logger.info("%-25s  %15.4f  %15.4f", "RMSE (lower=better)", svd_rmse, bl_rmse)
+  logger.info("%-25s  %15.4f  %15.4f", "MAE (lower=better)", svd_mae, bl_mae)
+  logger.info("%-25s  %15.4f  %15.4f", "Precision@10 (higher)", svd_prec, bl_prec)
+  logger.info("%-25s  %15.4f  %15.4f", "Recall@10 (higher)", svd_rec, bl_rec)
+  logger.info("%-25s  %14.2fs  %14.2fs", "Training cost", svd_train_time, bl_train_time)
+  logger.info("%-25s  %14.4fs  %14.4fs", "Inference cost", svd_infer_time, bl_infer_time)
+  logger.info("%-25s  %13.2f MB  %15s", "Model size", svd_size / (1024 * 1024), "~0 MB")
+  logger.info("-" * 60)
+  rmse_improvement = (1 - svd_rmse / bl_rmse) * 100
+  logger.info("SVD RMSE improvement over baseline: %.1f%%", rmse_improvement)
+  if svd_rmse < bl_rmse:
+    logger.info(">>> RECOMMENDATION: Use SVD in production (better accuracy)")
+  else:
+    logger.info(">>> NOTE: SVD not yet outperforming baseline — collect more ratings")
+
+  # ── Content model info ──
+  logger.info("\n" + "─" * 50)
+  logger.info("CONTENT-BASED MODEL (used for cold-start & hybrid)")
+  logger.info("─" * 50)
+  content_path = os.path.join(MODEL_DIR, "content_data.pkl")
+  tfidf_path = os.path.join(MODEL_DIR, "tfidf_matrix.npz")
+  if os.path.exists(content_path):
+    content_size = os.path.getsize(content_path)
+    tfidf_size = os.path.getsize(tfidf_path) if os.path.exists(tfidf_path) else 0
+    with open(content_path, "rb") as f:
+      cd = pickle.load(f)
+    logger.info("  Movies:     %d", len(cd.get("movie_ids", [])))
+    logger.info("  Genres:     %d (%s)", len(cd.get("genre_names", [])), cd.get("genre_names", []))
+    logger.info("  Similarity: %d movies with neighbors", len(cd.get("sim_top_k", {})))
+    logger.info("  Size:       %.2f MB (content) + %.2f MB (tfidf)",
+                 content_size / (1024 * 1024), tfidf_size / (1024 * 1024))
+  else:
+    logger.warning("  content_data.pkl not found")
 
 
 def online_eval():
@@ -104,106 +185,107 @@ def online_eval():
   logger.info("=" * 60)
 
   conn = get_connection()
+  cur = conn.cursor()
 
   # Recommendation log stats
   try:
-    stats_df = pd.read_sql("""
+    cur.execute("""
       SELECT
-        COUNT(*) as total_requests,
-        SUM(CASE WHEN status = 200 THEN 1 ELSE 0 END) as successful,
-        SUM(CASE WHEN status != 200 THEN 1 ELSE 0 END) as failed,
-        MIN(timestamp) as first_request,
-        MAX(timestamp) as last_request
+        COUNT(*) as total,
+        COALESCE(SUM(CASE WHEN status = 200 THEN 1 ELSE 0 END), 0) as ok,
+        COALESCE(SUM(CASE WHEN status != 200 THEN 1 ELSE 0 END), 0) as fail,
+        MIN(timestamp), MAX(timestamp)
       FROM recommendation_logs
-    """, conn)
-
-    row = stats_df.iloc[0]
-    total = int(row["total_requests"])
-    success = int(row["successful"])
-    failed = int(row["failed"])
+    """)
+    total, success, failed, first_ts, last_ts = cur.fetchone()
     logger.info("Recommendation requests:")
     logger.info("  Total:      %d", total)
     logger.info("  Successful: %d (%.1f%%)", success, (success / total * 100) if total else 0)
     logger.info("  Failed:     %d", failed)
-    logger.info("  First:      %s", row["first_request"])
-    logger.info("  Last:       %s", row["last_request"])
+    logger.info("  First:      %s", first_ts)
+    logger.info("  Last:       %s", last_ts)
+    if total == 0:
+      logger.info("  (No recommendation logs yet — course server may not have started hitting your API)")
   except Exception as e:
     logger.warning("Could not read recommendation_logs: %s", e)
+    conn.rollback()
 
-  # Personalization check: how many unique recommendation lists in recent 200 logs?
+  # Personalization
   try:
-    recent_df = pd.read_sql("""
+    cur.execute("""
       SELECT recommendations FROM recommendation_logs
       WHERE status = 200 AND recommendations IS NOT NULL AND recommendations != ''
       ORDER BY id DESC LIMIT 200
-    """, conn)
-
-    if not recent_df.empty:
-      unique_lists = recent_df["recommendations"].nunique()
-      total_lists = len(recent_df)
-      logger.info("\nPersonalization (last %d successful requests):", total_lists)
-      logger.info("  Unique recommendation lists: %d / %d (%.1f%%)",
-                   unique_lists, total_lists, unique_lists / total_lists * 100)
-      if unique_lists / total_lists < 0.1:
+    """)
+    rows = cur.fetchall()
+    if rows:
+      recs_list = [r[0] for r in rows]
+      unique = len(set(recs_list))
+      total_r = len(recs_list)
+      logger.info("\nPersonalization (last %d successful requests):", total_r)
+      logger.info("  Unique recommendation lists: %d / %d (%.1f%%)", unique, total_r, unique / total_r * 100)
+      if unique / total_r < 0.1:
         logger.warning("  LOW PERSONALIZATION: less than 10%% unique lists")
       else:
         logger.info("  Personalization looks good")
   except Exception as e:
     logger.warning("Could not check personalization: %s", e)
+    conn.rollback()
 
-  # Response time stats
+  # Response times
   try:
-    rt_df = pd.read_sql("""
+    cur.execute("""
       SELECT response_time FROM recommendation_logs
       WHERE status = 200 AND response_time IS NOT NULL
       ORDER BY id DESC LIMIT 500
-    """, conn)
-
-    if not rt_df.empty:
-      # Parse response times like "45ms" or "0.045s"
-      times_ms = []
-      for rt in rt_df["response_time"]:
-        rt = str(rt).strip()
-        if rt.endswith("ms"):
-          try:
-            times_ms.append(float(rt[:-2]))
-          except ValueError:
-            pass
-
-      if times_ms:
-        logger.info("\nResponse times (last %d requests):", len(times_ms))
-        logger.info("  Mean:   %.0fms", np.mean(times_ms))
-        logger.info("  Median: %.0fms", np.median(times_ms))
-        logger.info("  P95:    %.0fms", np.percentile(times_ms, 95))
-        logger.info("  P99:    %.0fms", np.percentile(times_ms, 99))
-        logger.info("  Max:    %.0fms", np.max(times_ms))
-        over_600 = sum(1 for t in times_ms if t > 600)
-        if over_600:
-          logger.warning("  %d requests over 600ms limit!", over_600)
+    """)
+    rows = cur.fetchall()
+    times_ms = []
+    for (rt,) in rows:
+      rt = str(rt).strip()
+      if rt.endswith("ms"):
+        try:
+          times_ms.append(float(rt[:-2]))
+        except ValueError:
+          pass
+    if times_ms:
+      logger.info("\nResponse times (last %d requests):", len(times_ms))
+      logger.info("  Mean:   %.0fms", np.mean(times_ms))
+      logger.info("  Median: %.0fms", np.median(times_ms))
+      logger.info("  P95:    %.0fms", np.percentile(times_ms, 95))
+      logger.info("  P99:    %.0fms", np.percentile(times_ms, 99))
+      logger.info("  Max:    %.0fms", np.max(times_ms))
+      over_600 = sum(1 for t in times_ms if t > 600)
+      if over_600:
+        logger.warning("  %d requests OVER 600ms limit!", over_600)
+      else:
+        logger.info("  All within 600ms limit")
   except Exception as e:
     logger.warning("Could not check response times: %s", e)
+    conn.rollback()
 
-  # Rating distribution of recommended movies
+  # User satisfaction
   try:
-    watch_df = pd.read_sql("""
-      SELECT COUNT(*) as watches, AVG(r.rating) as avg_rating
+    cur.execute("""
+      SELECT COUNT(*), AVG(r.rating)
       FROM watch_events w
       JOIN ratings r ON w.user_id = r.user_id AND w.movie_id = r.movie_id
-    """, conn)
-    if not watch_df.empty and watch_df.iloc[0]["watches"] > 0:
+    """)
+    watches, avg_rating = cur.fetchone()
+    if watches and watches > 0:
       logger.info("\nUser satisfaction proxy:")
-      logger.info("  Watched movies that were also rated: %d", int(watch_df.iloc[0]["watches"]))
-      logger.info("  Average rating of watched movies:    %.2f / 10", watch_df.iloc[0]["avg_rating"])
+      logger.info("  Watched movies that were also rated: %d", watches)
+      logger.info("  Average rating of watched movies:    %.2f / 10", avg_rating)
   except Exception as e:
     logger.warning("Could not compute satisfaction: %s", e)
+    conn.rollback()
 
   # DB stats
   logger.info("\nDatabase stats:")
-  cur = conn.cursor()
   for table in ["movies", "users", "ratings", "watch_events", "raw_events", "recommendation_logs"]:
     try:
       cur.execute(f"SELECT COUNT(*) FROM {table}")  # noqa: S608
-      logger.info("  %s: %d", table, cur.fetchone()[0])
+      logger.info("  %-25s %d rows", table + ":", cur.fetchone()[0])
     except Exception:
       conn.rollback()
   cur.close()
@@ -216,17 +298,22 @@ def model_info():
   logger.info("MODEL INFO")
   logger.info("=" * 60)
 
-  _print_model_sizes()
+  files = ["model.pkl", "content_data.pkl", "tfidf_matrix.npz", "tfidf_vectorizer.pkl"]
+  for f in files:
+    path = os.path.join(MODEL_DIR, f)
+    if os.path.exists(path):
+      size_mb = os.path.getsize(path) / (1024 * 1024)
+      logger.info("  %-25s %.2f MB", f, size_mb)
+    else:
+      logger.info("  %-25s not found", f)
 
   model_path = os.path.join(MODEL_DIR, "model.pkl")
   if os.path.exists(model_path):
     with open(model_path, "rb") as f:
       model_data = pickle.load(f)
-
     n_users = len(model_data.get("user_id_map", {}))
     n_items = len(model_data.get("raw_item_ids", []))
     n_factors = model_data["user_factors"].shape[1] if "user_factors" in model_data else 0
-
     logger.info("\nSVD model:")
     logger.info("  Users:          %d", n_users)
     logger.info("  Items:          %d", n_items)
@@ -234,11 +321,6 @@ def model_info():
     logger.info("  Global mean:    %.2f", model_data.get("global_mean", 0))
     logger.info("  User factors:   %s", model_data["user_factors"].shape)
     logger.info("  Item factors:   %s", model_data["item_factors"].shape)
-
-    sample_ids = list(model_data["user_id_map"].keys())[:5]
-    logger.info("  Sample user IDs: %s", sample_ids)
-    sample_items = model_data["raw_item_ids"][:5]
-    logger.info("  Sample item IDs: %s", sample_items)
   else:
     logger.warning("model.pkl not found at %s", model_path)
 
@@ -276,19 +358,8 @@ def _precision_recall_at_k(predictions, k=10, threshold=7.0):
   return np.mean(precisions) if precisions else 0.0, np.mean(recalls) if recalls else 0.0
 
 
-def _print_model_sizes():
-  files = ["model.pkl", "content_data.pkl", "tfidf_matrix.npz", "tfidf_vectorizer.pkl"]
-  for f in files:
-    path = os.path.join(MODEL_DIR, f)
-    if os.path.exists(path):
-      size_mb = os.path.getsize(path) / (1024 * 1024)
-      logger.info("  %s: %.1f MB", f, size_mb)
-    else:
-      logger.info("  %s: not found", f)
-
-
 def main():
-  parser = argparse.ArgumentParser()
+  parser = argparse.ArgumentParser(description="Evaluate recommendation system")
   parser.add_argument("--offline", action="store_true", help="Run offline evaluation only")
   parser.add_argument("--online", action="store_true", help="Run online evaluation only")
   parser.add_argument("--info", action="store_true", help="Show model info only")
