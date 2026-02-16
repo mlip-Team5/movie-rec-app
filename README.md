@@ -4,6 +4,7 @@
 **Course:** ML in Production (17-445/645/745) — Spring 2026, Carnegie Mellon University
 **Repository:** [group-project-s26-cloudy-with-a-chance-of-hallucinations](https://github.com/cmu-seai/group-project-s26-cloudy-with-a-chance-of-hallucinations)
 **Branch:** `dev_shreyave_model`
+**M1 Report:** [`m1_report.md`](m1_report.md)
 
 ---
 
@@ -290,7 +291,7 @@ docker compose exec postgres psql -U movieapp -d moviedb -c \
   "SELECT COUNT(*) as total,
           SUM(CASE WHEN status = 200 THEN 1 ELSE 0 END) as successful
    FROM recommendation_logs
-   WHERE timestamp >= NOW() - INTERVAL '24 hours';"
+   WHERE timestamp::timestamp >= NOW() - INTERVAL '24 hours';"
 ```
 
 ---
@@ -726,9 +727,9 @@ curl http://localhost:8082/stats | python3 -m json.tool
 
 **What to check:** Team contract document covering: how to communicate, how to make decisions, how to handle conflict, how to handle someone not contributing, how to handle someone wanting to leave.
 
-> *[TODO: Add link to team contract document]*
+**Location:** Section 4 of [`m1_report.md`](m1_report.md) and Section 15 of this README.
 
-> *[TODO: Add screenshot or link to teamwork notes showing who did what by when]*
+The team contract must include a work division table with **who** did **what** by **when** for all team members, and a screenshot or link to meeting notes.
 
 ### Deliverable 7: 2000+ Successful Requests in 24h (10pt)
 
@@ -743,7 +744,7 @@ docker compose exec postgres psql -U movieapp -d moviedb -c \
   "SELECT COUNT(*) as total_requests,
           SUM(CASE WHEN status = 200 THEN 1 ELSE 0 END) as successful
    FROM recommendation_logs
-   WHERE timestamp >= NOW() - INTERVAL '24 hours';"
+   WHERE timestamp::timestamp >= NOW() - INTERVAL '24 hours';"
 
 # Real-time monitoring:
 docker compose logs -f recommendation-service
