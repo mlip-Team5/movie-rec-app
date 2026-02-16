@@ -32,6 +32,17 @@ def validate_watch(event):
   return True, None
 
 
+def validate_recommendation(event):
+  if event.get("type") != "recommendation":
+    return False, "not a recommendation event"
+  if not isinstance(event.get("user_id"), int) or event["user_id"] <= 0:
+    return False, "invalid user_id"
+  status = event.get("status")
+  if not isinstance(status, int):
+    return False, "invalid status code"
+  return True, None
+
+
 def check_rating_drift(recent_ratings, historical_avg=5.5, threshold=1.0):
   """Returns True if the recent average deviates from historical by more than threshold."""
   if not recent_ratings or len(recent_ratings) < 10:

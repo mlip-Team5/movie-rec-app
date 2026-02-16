@@ -1,4 +1,12 @@
-"""Kafka consumer: ingests events from movielog and stores them in Postgres."""
+"""Kafka consumer: ingests events from movielog and stores them in Postgres.
+
+Every raw Kafka line is stored in the raw_events table (append-only audit trail).
+Parsed events are then routed to their specific tables:
+  - rating        → ratings (upsert latest)
+  - watch         → watch_events (aggregate minutes)
+  - new_account   → users (fetch profile from API)
+  - recommendation → recommendation_logs (course server feedback)
+"""
 
 import logging
 
@@ -7,8 +15,17 @@ from confluent_kafka import Consumer, KafkaError
 from config import KAFKA_BROKER, KAFKA_GROUP_ID, KAFKA_TOPIC
 from ingestion.api_client import fetch_movie, fetch_user
 from ingestion.parser import parse_log_line
-from ingestion.validators import validate_rating, validate_watch
-from storage.postgres import get_connection, init_db, upsert_movie, upsert_rating, upsert_user, upsert_watch
+from ingestion.validators import validate_rating, validate_recommendation, validate_watch
+from storage.postgres import (
+  get_connection,
+  init_db,
+  insert_raw_event,
+  insert_recommendation_log,
+  upsert_movie,
+  upsert_rating,
+  upsert_user,
+  upsert_watch,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,31 +60,53 @@ def run_consumer():
         logger.error("Kafka error: %s", msg.error())
         continue
 
-      event = parse_log_line(msg.value().decode("utf-8", errors="replace"))
+      raw_line = msg.value().decode("utf-8", errors="replace")
+      event = parse_log_line(raw_line)
       if not event:
         continue
 
       try:
         etype = event["type"]
 
+        # Store every event in the raw audit trail
+        insert_raw_event(conn, event.get("timestamp", ""), event["user_id"], etype, raw_line)
+
         if etype == "rating":
-          ok, _ = validate_rating(event)
+          ok, reason = validate_rating(event)
           if not ok:
             errors += 1
+            logger.debug("Invalid rating: %s", reason)
             continue
           upsert_rating(conn, event["user_id"], event["movie_id"], event["rating"], event.get("timestamp"))
           _ensure_movie(conn, event["movie_id"], known_movies)
 
         elif etype == "watch":
-          ok, _ = validate_watch(event)
+          ok, reason = validate_watch(event)
           if not ok:
             errors += 1
+            logger.debug("Invalid watch: %s", reason)
             continue
           upsert_watch(conn, event["user_id"], event["movie_id"])
           _ensure_movie(conn, event["movie_id"], known_movies)
 
         elif etype == "new_account":
           _ensure_user(conn, event["user_id"], known_users)
+
+        elif etype == "recommendation":
+          ok, reason = validate_recommendation(event)
+          if not ok:
+            errors += 1
+            logger.debug("Invalid recommendation log: %s", reason)
+            continue
+          insert_recommendation_log(
+            conn,
+            event.get("timestamp", ""),
+            event["user_id"],
+            event.get("server", ""),
+            event["status"],
+            event.get("recommendations", []),
+            event.get("response_time", ""),
+          )
 
         count += 1
         if count % 10000 == 0:
@@ -82,7 +121,7 @@ def run_consumer():
         conn = get_connection()
 
   except KeyboardInterrupt:
-    logger.info("Shutting down")
+    logger.info("Shutting down (processed %d events, %d errors)", count, errors)
   finally:
     consumer.close()
     conn.close()

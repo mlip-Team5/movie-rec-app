@@ -65,9 +65,13 @@ def collect_users(conn, id_range=(1, 100001)):
 
 def show_stats(conn):
   cur = conn.cursor()
-  for table in ["ratings", "watch_events", "movies", "users"]:
-    cur.execute(f"SELECT COUNT(*) FROM {table}")  # noqa: S608
-    logger.info("  %s: %d rows", table, cur.fetchone()[0])
+  for table in ["movies", "users", "ratings", "watch_events", "raw_events", "recommendation_logs"]:
+    try:
+      cur.execute(f"SELECT COUNT(*) FROM {table}")  # noqa: S608
+      logger.info("  %s: %d rows", table, cur.fetchone()[0])
+    except Exception:
+      conn.rollback()
+      logger.info("  %s: (table not yet created)", table)
   cur.close()
 
 

@@ -10,20 +10,7 @@ from config import POSTGRES_DB, POSTGRES_HOST, POSTGRES_PASSWORD, POSTGRES_PORT,
 logger = logging.getLogger(__name__)
 
 _SCHEMA_SQL = """
-  CREATE TABLE IF NOT EXISTS ratings (
-    user_id   INTEGER NOT NULL,
-    movie_id  TEXT    NOT NULL,
-    rating    REAL    NOT NULL,
-    timestamp TEXT,
-    PRIMARY KEY (user_id, movie_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS watch_events (
-    user_id         INTEGER NOT NULL,
-    movie_id        TEXT    NOT NULL,
-    minutes_watched INTEGER DEFAULT 1,
-    PRIMARY KEY (user_id, movie_id)
-  );
+  -- ── Reference data (from course API) ─────────────────────────────
 
   CREATE TABLE IF NOT EXISTS movies (
     movie_id     TEXT PRIMARY KEY,
@@ -46,9 +33,56 @@ _SCHEMA_SQL = """
     raw_data   JSONB
   );
 
-  CREATE INDEX IF NOT EXISTS idx_ratings_user ON ratings(user_id);
-  CREATE INDEX IF NOT EXISTS idx_ratings_movie ON ratings(movie_id);
-  CREATE INDEX IF NOT EXISTS idx_watch_user ON watch_events(user_id);
+  -- ── Derived / aggregated event tables ────────────────────────────
+
+  CREATE TABLE IF NOT EXISTS ratings (
+    user_id   INTEGER NOT NULL,
+    movie_id  TEXT    NOT NULL,
+    rating    REAL    NOT NULL,
+    timestamp TEXT,
+    PRIMARY KEY (user_id, movie_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS watch_events (
+    user_id         INTEGER NOT NULL,
+    movie_id        TEXT    NOT NULL,
+    minutes_watched INTEGER DEFAULT 1,
+    PRIMARY KEY (user_id, movie_id)
+  );
+
+  -- ── Append-only event log (audit trail, never modified) ──────────
+
+  CREATE TABLE IF NOT EXISTS raw_events (
+    id         SERIAL PRIMARY KEY,
+    timestamp  TEXT        NOT NULL,
+    user_id    INTEGER     NOT NULL,
+    event_type TEXT        NOT NULL,
+    raw_line   TEXT        NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  );
+
+  -- ── Recommendation logs (course server feedback) ─────────────────
+
+  CREATE TABLE IF NOT EXISTS recommendation_logs (
+    id              SERIAL PRIMARY KEY,
+    timestamp       TEXT        NOT NULL,
+    user_id         INTEGER     NOT NULL,
+    server          TEXT,
+    status          INTEGER     NOT NULL,
+    recommendations TEXT,
+    response_time   TEXT,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+  );
+
+  -- ── Indexes ──────────────────────────────────────────────────────
+
+  CREATE INDEX IF NOT EXISTS idx_ratings_user    ON ratings(user_id);
+  CREATE INDEX IF NOT EXISTS idx_ratings_movie   ON ratings(movie_id);
+  CREATE INDEX IF NOT EXISTS idx_watch_user      ON watch_events(user_id);
+  CREATE INDEX IF NOT EXISTS idx_raw_events_type ON raw_events(event_type);
+  CREATE INDEX IF NOT EXISTS idx_raw_events_user ON raw_events(user_id);
+  CREATE INDEX IF NOT EXISTS idx_rec_logs_user   ON recommendation_logs(user_id);
+  CREATE INDEX IF NOT EXISTS idx_rec_logs_status ON recommendation_logs(status);
 """
 
 
@@ -155,6 +189,35 @@ def upsert_user(conn, user_id, data):
       dislikes,
       Json(data),
     ),
+  )
+  conn.commit()
+  cur.close()
+
+
+# ── Append-only event storage ─────────────────────────────────────────
+
+
+def insert_raw_event(conn, timestamp, user_id, event_type, raw_line):
+  """Store a raw Kafka line. Append-only, never modified."""
+  cur = conn.cursor()
+  cur.execute(
+    """INSERT INTO raw_events (timestamp, user_id, event_type, raw_line)
+       VALUES (%s, %s, %s, %s)""",
+    (timestamp, user_id, event_type, raw_line),
+  )
+  conn.commit()
+  cur.close()
+
+
+def insert_recommendation_log(conn, timestamp, user_id, server, status, recommendations, response_time):
+  """Store a recommendation request result from the course server."""
+  recs_str = ",".join(str(r) for r in recommendations) if recommendations else ""
+  cur = conn.cursor()
+  cur.execute(
+    """INSERT INTO recommendation_logs
+       (timestamp, user_id, server, status, recommendations, response_time)
+       VALUES (%s, %s, %s, %s, %s, %s)""",
+    (timestamp, user_id, server, status, recs_str, response_time),
   )
   conn.commit()
   cur.close()
