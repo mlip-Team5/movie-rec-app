@@ -1,12 +1,4 @@
-"""Multi-tier recommendation engine.
-
-Prediction cascade:
-  1. Redis cache (pre-computed hybrid recs)
-  2. Real-time SVD scoring
-  3. Content-based fallback
-  4. Popularity list from Redis
-  5. Hardcoded defaults
-"""
+"""Multi-tier recommendation engine with dynamic fallbacks."""
 
 import logging
 import os
@@ -18,28 +10,8 @@ from .config import MODEL_DIR, REDIS_HOST, REDIS_PORT
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_RECS = [
-  "the+shawshank+redemption+1994",
-  "the+godfather+1972",
-  "the+dark+knight+2008",
-  "pulp+fiction+1994",
-  "forrest+gump+1994",
-  "inception+2010",
-  "the+matrix+1999",
-  "goodfellas+1990",
-  "interstellar+2014",
-  "the+lord+of+the+rings+the+return+of+the+king+2003",
-  "fight+club+1999",
-  "the+lord+of+the+rings+the+fellowship+of+the+ring+2001",
-  "gladiator+2000",
-  "the+silence+of+the+lambs+1991",
-  "schindlers+list+1993",
-  "saving+private+ryan+1998",
-  "spirited+away+2001",
-  "the+green+mile+1999",
-  "se7en+1995",
-  "casablanca+1942",
-]
+CACHE_TTL = int(os.environ.get("RECS_CACHE_TTL", 3600))
+MAX_RECS = int(os.environ.get("MAX_RECS", 20))
 
 
 class Recommender:
@@ -49,8 +21,6 @@ class Recommender:
     self._content = None
     self._model_version = None
     self._load_models()
-
-  # ── Connections ──────────────────────────────────────────────────
 
   def _connect_redis(self):
     try:
@@ -63,8 +33,6 @@ class Recommender:
     except Exception as e:
       logger.warning("Redis unavailable: %s", e)
       return None
-
-  # ── Model loading ───────────────────────────────────────────────
 
   def _load_models(self):
     self._svd = self._load_pickle("model.pkl")
@@ -100,39 +68,35 @@ class Recommender:
     except Exception:
       pass
 
-  # ── Prediction cascade ──────────────────────────────────────────
+  def predict(self, userid, limit=MAX_RECS):
+    recs, _ = self.predict_with_tier(userid, limit)
+    return recs
 
-  def predict(self, userid, limit=20):
+  def predict_with_tier(self, userid, limit=MAX_RECS):
+    """Return (recs, tier_name) for observability."""
     self._check_model_update()
 
-    # Tier 1: Redis cache
     recs = self._from_cache(userid)
     if recs:
-      return recs
+      return recs[:limit], "cache"
 
-    # Tier 2: Real-time SVD
     if self._svd:
       recs = self._svd_predict(userid, limit)
       if recs:
         self._to_cache(userid, recs)
-        return recs
+        return recs, "svd"
 
-    # Tier 3: Content-based fallback
     if self._content:
       recs = self._content_fallback(limit)
       if recs:
         self._to_cache(userid, recs)
-        return recs
+        return recs, "content"
 
-    # Tier 4: Popularity from Redis
     recs = self._from_popularity(limit)
     if recs:
-      return recs
+      return recs, "popularity"
 
-    # Tier 5: Hardcoded defaults
-    return DEFAULT_RECS[:limit]
-
-  # ── Tier implementations ────────────────────────────────────────
+    return self._dynamic_fallback(limit), "fallback"
 
   def _from_cache(self, userid):
     if not self._redis:
@@ -161,14 +125,12 @@ class Recommender:
       + user_bias
     )
 
-    # Zero out already-rated items
     for idx in self._svd.get("user_rated_items", {}).get(inner_uid, set()):
       scores[idx] = -np.inf
 
     raw_ids = self._svd["raw_item_ids"]
     top_idx = np.argpartition(scores, -limit)[-limit:]
     top_idx = top_idx[np.argsort(scores[top_idx])[::-1]]
-
     return [str(raw_ids[i]) for i in top_idx[:limit]]
 
   def _content_fallback(self, limit):
@@ -200,10 +162,24 @@ class Recommender:
       pass
     return None
 
-  def _to_cache(self, userid, recs, ttl=3600):
+  def _dynamic_fallback(self, limit):
+    """Last resort: top-rated movies from content data, or first N item IDs from model."""
+    if self._content:
+      votes = self._content.get("vote_averages")
+      idx_to_mid = self._content.get("idx_to_movie_id", {})
+      if votes is not None and len(votes) > 0:
+        top_idx = np.argsort(votes)[-limit:][::-1]
+        return [idx_to_mid[i] for i in top_idx if i in idx_to_mid]
+
+    if self._svd:
+      return [str(mid) for mid in self._svd["raw_item_ids"][:limit]]
+
+    return []
+
+  def _to_cache(self, userid, recs):
     if not self._redis:
       return
     try:
-      self._redis.setex(f"recs:user:{userid}", ttl, ",".join(str(x) for x in recs))
+      self._redis.setex(f"recs:user:{userid}", CACHE_TTL, ",".join(str(x) for x in recs))
     except Exception:
       pass

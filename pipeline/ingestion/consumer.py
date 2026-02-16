@@ -1,12 +1,4 @@
-"""Kafka consumer: ingests events from movielog and stores them in Postgres.
-
-Every raw Kafka line is stored in the raw_events table (append-only audit trail).
-Parsed events are then routed to their specific tables:
-  - rating        → ratings (upsert latest)
-  - watch         → watch_events (aggregate minutes)
-  - new_account   → users (fetch profile from API)
-  - recommendation → recommendation_logs (course server feedback)
-"""
+"""Kafka consumer: ingests events from the movielog stream into Postgres."""
 
 import logging
 
@@ -68,7 +60,6 @@ def run_consumer():
       try:
         etype = event["type"]
 
-        # Store every event in the raw audit trail
         insert_raw_event(conn, event.get("timestamp", ""), event["user_id"], etype, raw_line)
 
         if etype == "rating":

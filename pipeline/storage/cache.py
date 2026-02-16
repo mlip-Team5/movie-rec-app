@@ -1,14 +1,12 @@
-"""Redis cache operations for recommendations."""
+"""Redis cache for pre-computed recommendations."""
 
 import logging
 
 import redis as redis_lib
 
-from config import REDIS_HOST, REDIS_PORT
+from config import RECS_TTL, REDIS_HOST, REDIS_PORT
 
 logger = logging.getLogger(__name__)
-
-_TTL = 86400  # 24 hours
 
 
 class RedisCache:
@@ -21,10 +19,10 @@ class RedisCache:
   def client(self):
     return self._r
 
-  def set_user_recs(self, user_id, recs, ttl=_TTL):
+  def set_user_recs(self, user_id, recs, ttl=RECS_TTL):
     self._r.setex(f"recs:user:{user_id}", ttl, ",".join(str(x) for x in recs))
 
-  def set_popular(self, movie_ids, ttl=_TTL):
+  def set_popular(self, movie_ids, ttl=RECS_TTL):
     self._r.setex("recs:popular", ttl, ",".join(str(x) for x in movie_ids))
 
   def set_model_version(self, version):

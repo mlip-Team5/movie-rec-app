@@ -1,9 +1,4 @@
-"""Cold-start recommendations for users with no ratings.
-
-Strategy:
-  1. Match user self-description text against movie content via TF-IDF
-  2. Fallback: extract genre keywords from text, recommend popular in those genres
-"""
+"""Cold-start: recommend movies for users with no ratings using their self-descriptions."""
 
 import logging
 
@@ -12,11 +7,23 @@ from training.content import load_content_data, load_tfidf, recommend_from_text
 
 logger = logging.getLogger(__name__)
 
-_GENRES = [
-  "action", "adventure", "animation", "comedy", "crime", "documentary",
-  "drama", "family", "fantasy", "history", "horror", "music", "mystery",
-  "romance", "science fiction", "sci-fi", "thriller", "war", "western",
-]
+
+def get_genre_list():
+  """Load distinct genres from the movies table instead of hardcoding."""
+  conn = get_connection()
+  cur = conn.cursor()
+  cur.execute("SELECT DISTINCT genres FROM movies WHERE genres IS NOT NULL AND genres != ''")
+  rows = cur.fetchall()
+  cur.close()
+  conn.close()
+
+  genres = set()
+  for (raw,) in rows:
+    for g in raw.split(","):
+      g = g.strip().lower()
+      if g:
+        genres.add(g)
+  return sorted(genres)
 
 
 def process_all(cache):
@@ -51,7 +58,7 @@ def process_all(cache):
 
 
 def _from_content(likes_text, dislikes_text=""):
-  """Match user description against movie content via TF-IDF."""
+  """Match user description against movie content via TF-IDF cosine similarity."""
   try:
     content_data = load_content_data()
     vectorizer, tfidf_matrix = load_tfidf()
@@ -73,8 +80,9 @@ def _from_content(likes_text, dislikes_text=""):
 
 
 def _from_genres(conn, likes_text, dislikes_text=""):
-  """Fallback: match genre keywords in text against DB."""
-  liked = [g for g in _GENRES if g in likes_text.lower()]
+  """Fallback: extract genre keywords from text, query DB for top-rated matches."""
+  all_genres = get_genre_list()
+  liked = [g for g in all_genres if g in likes_text.lower()]
   if not liked:
     return None
 
@@ -83,7 +91,7 @@ def _from_genres(conn, likes_text, dislikes_text=""):
   query = f"SELECT movie_id FROM movies WHERE ({conditions})"
   params = list(like_pats)
 
-  disliked = [g for g in _GENRES if g in (dislikes_text or "").lower()]
+  disliked = [g for g in all_genres if g in (dislikes_text or "").lower()]
   if disliked:
     dis_pats = [f"%{g}%" for g in disliked]
     exclude = " AND NOT (" + " OR ".join(["LOWER(genres) LIKE %s"] * len(dis_pats)) + ")"

@@ -16,11 +16,23 @@ from storage.postgres import get_connection
 
 logger = logging.getLogger(__name__)
 
-ALL_GENRES = [
-  "action", "adventure", "animation", "comedy", "crime", "documentary",
-  "drama", "family", "fantasy", "history", "horror", "music", "mystery",
-  "romance", "science fiction", "thriller", "tv movie", "war", "western",
-]
+
+def _load_genres_from_db():
+  """Load distinct genre names from the movies table."""
+  conn = get_connection()
+  cur = conn.cursor()
+  cur.execute("SELECT DISTINCT genres FROM movies WHERE genres IS NOT NULL AND genres != ''")
+  rows = cur.fetchall()
+  cur.close()
+  conn.close()
+
+  genres = set()
+  for (raw,) in rows:
+    for g in raw.split(","):
+      g = g.strip().lower()
+      if g:
+        genres.add(g)
+  return sorted(genres)
 
 
 def build_and_save():
@@ -32,31 +44,27 @@ def build_and_save():
     logger.warning("No movies in DB -- run data collection first")
     return
 
-  # TF-IDF on movie content
   logger.info("Computing TF-IDF on %d movies...", len(movies_df))
   content_strings = _build_content_strings(movies_df)
   tfidf = TfidfVectorizer(stop_words="english", max_features=5000)
   tfidf_matrix = tfidf.fit_transform(content_strings)
   logger.info("TF-IDF matrix: %s", tfidf_matrix.shape)
 
-  # Content similarity (top-50 per movie)
   logger.info("Computing content similarity...")
   sim_top_k = _compute_similarity(tfidf_matrix, top_k=50)
 
-  # Genre vectors
-  genre_matrix, genre_names = _compute_genre_vectors(movies_df)
+  genre_names = _load_genres_from_db()
+  genre_matrix = _compute_genre_vectors(movies_df, genre_names)
 
-  # Build index maps
   movie_id_to_idx = {mid: i for i, mid in enumerate(movies_df["movie_id"])}
   idx_to_movie_id = {i: mid for mid, i in movie_id_to_idx.items()}
 
-  # Save content data
   content_data = {
     "movie_id_to_idx": movie_id_to_idx,
     "idx_to_movie_id": idx_to_movie_id,
     "sim_top_k": sim_top_k,
     "genre_matrix": genre_matrix,
-    "genre_names": list(genre_names),
+    "genre_names": genre_names,
     "movie_ids": movies_df["movie_id"].tolist(),
     "vote_averages": movies_df["vote_average"].values,
     "popularities": movies_df["popularity"].values,
@@ -64,14 +72,10 @@ def build_and_save():
   }
   _save_pickle(content_data, "content_data.pkl")
 
-  # Save TF-IDF artifacts
   save_npz(os.path.join(MODEL_DIR, "tfidf_matrix.npz"), tfidf_matrix)
   _save_pickle(tfidf, "tfidf_vectorizer.pkl")
 
   logger.info("Feature engineering complete")
-
-
-# ── Internal helpers ──────────────────────────────────────────────
 
 
 def _load_movies():
@@ -85,7 +89,7 @@ def _load_movies():
 
 
 def _build_content_strings(movies_df):
-  """Build a text blob per movie for TF-IDF: genres + overview + keywords."""
+  """Concatenate genres + overview + keywords per movie for TF-IDF."""
   contents = []
   for _, row in movies_df.iterrows():
     parts = []
@@ -104,7 +108,7 @@ def _build_content_strings(movies_df):
 
 
 def _compute_similarity(tfidf_matrix, top_k=50, batch_size=500):
-  """Cosine similarity, keeping only top-K per movie."""
+  """Cosine similarity, keeping only top-K neighbors per movie."""
   n = tfidf_matrix.shape[0]
   sim_top_k = {}
   for start in range(0, n, batch_size):
@@ -112,7 +116,7 @@ def _compute_similarity(tfidf_matrix, top_k=50, batch_size=500):
     sim_batch = cosine_similarity(tfidf_matrix[start:end], tfidf_matrix)
     for i in range(end - start):
       row = sim_batch[i]
-      row[start + i] = -1  # exclude self
+      row[start + i] = -1
       top_idx = np.argpartition(row, -top_k)[-top_k:]
       top_idx = top_idx[np.argsort(row[top_idx])[::-1]]
       sim_top_k[start + i] = [(int(j), float(row[j])) for j in top_idx if row[j] > 0]
@@ -121,15 +125,15 @@ def _compute_similarity(tfidf_matrix, top_k=50, batch_size=500):
   return sim_top_k
 
 
-def _compute_genre_vectors(movies_df):
+def _compute_genre_vectors(movies_df, genre_names):
   def parse(g):
     if not g or pd.isna(g):
       return []
     return [x.strip().lower() for x in str(g).split(",")]
 
   genre_lists = movies_df["genres"].apply(parse)
-  mlb = MultiLabelBinarizer(classes=ALL_GENRES)
-  return mlb.fit_transform(genre_lists), mlb.classes_
+  mlb = MultiLabelBinarizer(classes=genre_names)
+  return mlb.fit_transform(genre_lists)
 
 
 def _save_pickle(obj, filename):

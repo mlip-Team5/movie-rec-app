@@ -1,4 +1,4 @@
-"""PostgreSQL schema and upsert operations."""
+"""PostgreSQL schema and data operations."""
 
 import logging
 
@@ -10,8 +10,6 @@ from config import POSTGRES_DB, POSTGRES_HOST, POSTGRES_PASSWORD, POSTGRES_PORT,
 logger = logging.getLogger(__name__)
 
 _SCHEMA_SQL = """
-  -- ── Reference data (from course API) ─────────────────────────────
-
   CREATE TABLE IF NOT EXISTS movies (
     movie_id     TEXT PRIMARY KEY,
     title        TEXT,
@@ -33,8 +31,6 @@ _SCHEMA_SQL = """
     raw_data   JSONB
   );
 
-  -- ── Derived / aggregated event tables ────────────────────────────
-
   CREATE TABLE IF NOT EXISTS ratings (
     user_id   INTEGER NOT NULL,
     movie_id  TEXT    NOT NULL,
@@ -50,8 +46,6 @@ _SCHEMA_SQL = """
     PRIMARY KEY (user_id, movie_id)
   );
 
-  -- ── Append-only event log (audit trail, never modified) ──────────
-
   CREATE TABLE IF NOT EXISTS raw_events (
     id         SERIAL PRIMARY KEY,
     timestamp  TEXT        NOT NULL,
@@ -60,8 +54,6 @@ _SCHEMA_SQL = """
     raw_line   TEXT        NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW()
   );
-
-  -- ── Recommendation logs (course server feedback) ─────────────────
 
   CREATE TABLE IF NOT EXISTS recommendation_logs (
     id              SERIAL PRIMARY KEY,
@@ -73,8 +65,6 @@ _SCHEMA_SQL = """
     response_time   TEXT,
     created_at      TIMESTAMPTZ DEFAULT NOW()
   );
-
-  -- ── Indexes ──────────────────────────────────────────────────────
 
   CREATE INDEX IF NOT EXISTS idx_ratings_user    ON ratings(user_id);
   CREATE INDEX IF NOT EXISTS idx_ratings_movie   ON ratings(movie_id);
@@ -163,16 +153,8 @@ def upsert_movie(conn, movie_id, data):
 
 
 def upsert_user(conn, user_id, data):
-  likes = (
-    data.get("self_description_likes")
-    or data.get("likes")
-    or ""
-  )
-  dislikes = (
-    data.get("self_description_dislikes")
-    or data.get("dislikes")
-    or ""
-  )
+  likes = data.get("self_description_likes") or data.get("likes") or ""
+  dislikes = data.get("self_description_dislikes") or data.get("dislikes") or ""
   cur = conn.cursor()
   cur.execute(
     """INSERT INTO users (user_id, age, gender, occupation, likes, dislikes, raw_data)
@@ -194,11 +176,7 @@ def upsert_user(conn, user_id, data):
   cur.close()
 
 
-# ── Append-only event storage ─────────────────────────────────────────
-
-
 def insert_raw_event(conn, timestamp, user_id, event_type, raw_line):
-  """Store a raw Kafka line. Append-only, never modified."""
   cur = conn.cursor()
   cur.execute(
     """INSERT INTO raw_events (timestamp, user_id, event_type, raw_line)
@@ -210,7 +188,6 @@ def insert_raw_event(conn, timestamp, user_id, event_type, raw_line):
 
 
 def insert_recommendation_log(conn, timestamp, user_id, server, status, recommendations, response_time):
-  """Store a recommendation request result from the course server."""
   recs_str = ",".join(str(r) for r in recommendations) if recommendations else ""
   cur = conn.cursor()
   cur.execute(

@@ -4,8 +4,9 @@ import logging
 
 import numpy as np
 
-from training import svd as svd_module
+from config import MAX_RECS, RECS_TTL
 from training import content as content_module
+from training import svd as svd_module
 
 logger = logging.getLogger(__name__)
 
@@ -35,16 +36,14 @@ def precompute(model_data, content_data, ratings_df, cache, alpha=0.7, batch_siz
     else:
       final = svd_scores
 
-    # Mask already-rated items
     for idx in rated_map.get(inner_uid, set()):
       final[idx] = -np.inf
 
-    # Top-20
-    top_idx = np.argpartition(final, -20)[-20:]
+    top_idx = np.argpartition(final, -MAX_RECS)[-MAX_RECS:]
     top_idx = top_idx[np.argsort(final[top_idx])[::-1]]
-    top_ids = [str(raw_ids[i]) for i in top_idx[:20]]
+    top_ids = [str(raw_ids[i]) for i in top_idx[:MAX_RECS]]
 
-    pipe.setex(f"recs:user:{raw_uid}", 86400, ",".join(top_ids))
+    pipe.setex(f"recs:user:{raw_uid}", RECS_TTL, ",".join(top_ids))
     count += 1
 
     if count % batch_size == 0:
