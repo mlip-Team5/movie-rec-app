@@ -1,5 +1,3 @@
-import json
-
 import pytest
 
 from app import app
@@ -12,27 +10,34 @@ def client():
     yield client
 
 
-def test_index_route(client):
-  """Test the index route returns a 200 and correct message."""
-  response = client.get("/")
-  assert response.status_code == 200
-  data = json.loads(response.data)
-  assert data["message"] == "Movie Recommendation API is running"
+def test_index(client):
+  resp = client.get("/")
+  assert resp.status_code == 200
+  assert b"Movie Recommendation API" in resp.data
 
 
-def test_recommend_route(client):
-  """Test the recommend route returns hardcoded IDs as CSV."""
-  userid = "123"
-  response = client.get(f"/recommend/{userid}")
-
-  assert response.status_code == 200
-  # The response is now a CSV string
-  data = response.data.decode("utf-8")
-  expected_ids = "101,204,550,892,12"
-  assert data == expected_ids
+def test_health(client):
+  resp = client.get("/health")
+  assert resp.status_code == 200
+  assert resp.get_json()["status"] == "healthy"
 
 
-def test_recommend_route_missing_userid(client):
-  """Test that the route returns 404 if userid is missing."""
-  response = client.get("/recommend")
-  assert response.status_code == 404
+def test_recommend_returns_csv(client):
+  resp = client.get("/recommend/12345")
+  assert resp.status_code == 200
+  assert resp.content_type.startswith("text/plain")
+  ids = resp.data.decode().split(",")
+  assert 1 <= len(ids) <= 20
+  assert all(mid.strip().isdigit() for mid in ids)
+
+
+def test_recommend_different_users(client):
+  for uid in [1, 999, 500000]:
+    resp = client.get(f"/recommend/{uid}")
+    assert resp.status_code == 200
+    assert len(resp.data.decode()) > 0
+
+
+def test_recommend_invalid_userid(client):
+  resp = client.get("/recommend/notanumber")
+  assert resp.status_code == 404
